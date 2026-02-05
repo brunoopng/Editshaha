@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Project — Baú Minimal (Supabase auth + Storage, anonymous)</title>
+<style>
+:root{
+  --bg:#0b0b0b;--card:#0f1012;--muted:#9b9b9b;--white:#fff;--accent:#1f8a42;--radius:12px;--header-h:64px;--brand-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);font-family:var(--brand-font);color:var(--white);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;border:0;background:none;color:inherit;cursor:pointer}
+
+/* Header */
+header{height:var(--header-h);display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:linear-gradient(180deg,var(--card),#090909);border-bottom:1px solid rgba(255,255,255,0.03);z-index:40}
+.brand{display:flex;align-items:center;gap:12px}
+.brand svg{width:28px;height:28px}
+.brand .title{font-weight:700;letter-spacing:0.6px;font-size:15px}
+
+/* + circle */
+.plus-circle{width:48px;height:48px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid rgba(255,255,255,0.04);cursor:pointer;padding:6px;transition:transform .12s, background .12s}
+.plus-circle:hover{background:rgba(255,255,255,0.03);transform:translateY(-3px)}
+
+/* Layout */
+.main{display:flex;align-items:flex-start;justify-content:center;padding:28px 20px;min-height:calc(100vh - var(--header-h))}
+.container{width:100%;max-width:1200px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.app-note{font-size:13px;color:var(--muted)}
+
+/* Grid 3-col fixed, responsive */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%}
+.item{width:100%;border-radius:10px;overflow:hidden;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);border:1px solid rgba(255,255,255,0.03);aspect-ratio:16/9;display:block;position:relative;cursor:pointer;touch-action:manipulation}
+.thumb-img,.thumb-video{width:100%;height:100%;object-fit:cover;display:block}
+.skeleton{width:100%;height:100%;background:linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.03) 50%, rgba(255,255,255,0.02) 100%)}
+.small{font-size:13px;color:var(--muted)}
+.empty{color:var(--muted);padding:18px;text-align:center}
+
+/* Player modal */
+.player-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);align-items:center;justify-content:center;z-index:30000;padding:20px}
+.player-card{width:100%;max-width:1100px;background:transparent;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+.player-controls{display:flex;justify-content:flex-end;gap:8px}
+.player-close{padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);color:var(--white)}
+
+/* Upload modal */
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:20000}
+.modal-card{width:520px;background:var(--card);padding:16px;border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.02)}
+
+/* responsive */
+@media (max-width:900px){ .grid{grid-template-columns:repeat(2,1fr)} .plus-circle{width:44px;height:44px} }
+@media (max-width:600px){ .grid{grid-template-columns:repeat(1,1fr)} }
+
+/* counter centralizado discreto */
+#count{font-size:13px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+
+<!-- Short splash -->
+<div id="splash" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:9999">
+  <div style="text-align:center">
+    <svg viewBox="0 0 24 24" width="68" height="68" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="5" stroke="white" stroke-opacity="0.06" stroke-width="1.6"/><path d="M7.5 12h9" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>
+  </div>
+</div>
+
+<header>
+  <div class="brand" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" stroke="white" stroke-opacity="0.06" stroke-width="1.6"/><path d="M7.5 12h9" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <div class="title">Project</div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:center">
+    <!-- upload button remains -->
+    <button id="openAdd" class="plus-circle" title="Adicionar" aria-label="Adicionar arquivo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <!-- NOTE: removed email login UI as requested (anonymous sign-in is automatic) -->
+  </div>
+</header>
+
+<main class="main" id="root">
+  <div class="container">
+    <div class="topbar">
+      <div class="app-note small">Suas Mídias</div>
+      <div class="small" id="count">0 itens</div>
+    </div>
+
+    <div id="grid" class="grid" aria-live="polite"></div>
+    <div id="empty" class="empty" style="display:none">Nenhum arquivo — clique no “+” para adicionar.</div>
+  </div>
+</main>
+
+<!-- Upload modal (multiple allowed) -->
+<div id="uploadModal" class="modal-backdrop" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <h3 style="margin:0 0 8px 0">Adicionar arquivos</h3>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <input id="fileInput" type="file" aria-label="Arquivos" multiple accept="video/*,image/*" />
+      <div class="small">Selecionar vários arquivos. Em produção defina políticas seguras no Supabase.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button id="cancelUpload" class="small" style="padding:8px 10px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03);color:var(--muted)">Cancelar</button>
+        <button id="confirmUpload" class="small" style="padding:8px 10px;border-radius:8px;background:var(--accent);color:#fff">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Player modal -->
+<div id="playerModal" class="player-backdrop" aria-hidden="true">
+  <div class="player-card" role="dialog" aria-modal="true">
+    <div class="player-controls" style="justify-content:flex-end">
+      <button id="fsBtn" class="player-close small" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+      <button id="closePlayer" class="player-close small">Fechar</button>
+    </div>
+    <div id="playerContainer" style="background:#000;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:240px"></div>
+  </div>
+</div>
+
+<script type="module">
+/* ====== CONFIG: substitua pelos seus valores ====== */
+const SUPABASE_URL = 'https://nfvygrfdzpmlbpflvttv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5mdnlncmZkenBtbGJwZmx2dHR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAzMDQ2OTYsImV4cCI6MjA4NTg4MDY5Nn0.Ksg71P2nwpr71bTgscJiytuBCD_0sclaFSErLCyVPXk';
+const STORAGE_BUCKET = 'media'; // nome do bucket no Supabase (recomendado: privado)
+
+/* ---- importe client via CDN esm ---- */
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ========= UI refs ========= */
+const grid = document.getElementById('grid');
+const empty = document.getElementById('empty');
+const count = document.getElementById('count');
+
+const openAdd = document.getElementById('openAdd');
+const uploadModal = document.getElementById('uploadModal');
+const cancelUpload = document.getElementById('cancelUpload');
+const confirmUpload = document.getElementById('confirmUpload');
+const fileInput = document.getElementById('fileInput');
+
+const playerModal = document.getElementById('playerModal');
+const playerContainer = document.getElementById('playerContainer');
+const closePlayer = document.getElementById('closePlayer');
+const fsBtn = document.getElementById('fsBtn');
+
+let currentUser = null;
+
+/* hide splash quickly */
+window.addEventListener('load', ()=> setTimeout(()=>{ const s=document.getElementById('splash'); if(s) s.style.display='none'; },350));
+
+/* open add */
+openAdd.addEventListener('click', ()=> {
+  if(!currentUser){ alert('Aguarde... inicializando sessão anônima.'); return; }
+  fileInput.value = '';
+  uploadModal.style.display = 'flex';
+  uploadModal.setAttribute('aria-hidden','false');
+});
+cancelUpload.addEventListener('click', ()=> {
+  uploadModal.style.display = 'none';
+  uploadModal.setAttribute('aria-hidden','true');
+});
+
+/* helper to create safe path */
+function makeStoragePath(userId, file){
+  const safeName = file.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9._-]/g,'');
+  return `${userId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
+}
+
+/* upload to supabase storage and insert metadata to media table */
+async function uploadFileToSupabase(file){
+  if(!currentUser) throw new Error('Usuário não autenticado');
+
+  const path = makeStoragePath(currentUser.id, file);
+
+  // upload
+  const { data: uploadData, error: uploadErr } = await sb.storage.from(STORAGE_BUCKET).upload(path, file, { cacheControl: '3600', upsert: false });
+  if(uploadErr){
+    console.error('Storage upload error', uploadErr);
+    throw uploadErr;
+  }
+
+  // insert metadata in media table (matches SQL: user_id, file_path, file_name, file_type, file_size)
+  const meta = {
+    user_id: currentUser.id,
+    file_path: path,
+    file_name: file.name,
+    file_type: file.type || null,
+    file_size: file.size || null
+  };
+  const { data: insertRes, error: insertErr } = await sb.from('media').insert(meta).select().single();
+  if(insertErr){
+    console.warn('Warning: could not insert metadata to table media', insertErr);
+    throw insertErr;
+  }
+  return insertRes;
+}
+
+/* confirmUpload agora envia para Supabase (em vez de IndexedDB) */
+confirmUpload.addEventListener('click', async ()=>{
+  const files = Array.from(fileInput.files || []);
+  if(files.length === 0){ alert('Escolha ao menos um arquivo'); return; }
+  if(!currentUser){ alert('Aguarde a inicialização anonimizada antes de enviar.'); return; }
+
+  uploadModal.style.display = 'none';
+  uploadModal.setAttribute('aria-hidden','true');
+
+  // sequential upload with UI feedback
+  for(const f of files){
+    try{
+      // placeholder
+      const placeholder = document.createElement('div'); placeholder.className = 'item';
+      placeholder.innerHTML = '<div class="skeleton"></div>';
+      grid.prepend(placeholder);
+      count.textContent = (grid.children.length) + ' itens';
+
+      // upload + insert metadata
+      await uploadFileToSupabase(f);
+
+    }catch(err){
+      console.error('upload error', err);
+      alert('Erro ao enviar arquivo: ' + (err.message || err));
+    }
+  }
+
+  // refresh list
+  await fetchAndRenderFromSupabase();
+});
+
+/* fetch media rows for current user and render; uses signed URLs for private bucket */
+async function fetchAndRenderFromSupabase(){
+  if(!currentUser) { grid.innerHTML = ''; empty.style.display = 'block'; count.textContent = '0 itens'; return; }
+
+  try{
+    const { data: rows, error } = await sb.from('media').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(500);
+    if(error){
+      console.warn('media select error', error);
+      return;
+    }
+
+    grid.innerHTML = '';
+    if(!rows || rows.length === 0){
+      empty.style.display = 'block';
+      count.textContent = '0 itens';
+      return;
+    }
+    empty.style.display = 'none';
+    count.textContent = rows.length + (rows.length === 1 ? ' item' : ' itens');
+
+    // render nodes; for each row, get signed url
+    for(const r of rows){
+      const node = document.createElement('div'); node.className = 'item';
+      let signedUrl = null;
+      try {
+        const { data: sdata, error: serr } = await sb.storage.from(STORAGE_BUCKET).createSignedUrl(r.file_path, 60*60);
+        if(serr){ console.warn('signedUrl error', serr); signedUrl = null; }
+        else signedUrl = sdata.signedUrl;
+      } catch(e){
+        console.warn('signed url exception', e); signedUrl = null;
+      }
+
+      const publicObj = sb.storage.from(STORAGE_BUCKET).getPublicUrl(r.file_path).data;
+      const effectiveUrl = signedUrl || (publicObj && publicObj.publicUrl) || null;
+
+      if(r.file_type && r.file_type.startsWith('video/')){
+        const vid = document.createElement('video');
+        vid.src = effectiveUrl;
+        vid.muted = true;
+        vid.playsInline = true;
+        vid.loop = true;
+        vid.preload = 'metadata';
+        vid.className = 'thumb-video';
+        vid.style.objectFit = 'cover';
+        node.appendChild(vid);
+
+        // hover/touch play preview
+        const playPreview = async () => { try{ await vid.play(); }catch(e){} };
+        const stopPreview = ()=> { try{ vid.pause(); vid.currentTime = 0; }catch(e){} };
+
+        node.addEventListener('pointerenter', (ev) => { if(ev.pointerType === 'mouse') playPreview(); });
+        node.addEventListener('pointerleave', (ev) => { if(ev.pointerType === 'mouse') stopPreview(); });
+
+        let touchActive = false;
+        node.addEventListener('touchstart', ()=> { touchActive = true; playPreview(); }, { passive: true });
+        node.addEventListener('touchend', ()=> { if(touchActive){ setTimeout(()=>{ stopPreview(); touchActive=false }, 150); } }, { passive: true });
+        node.addEventListener('click', ()=> playFromUrl(effectiveUrl, r.file_type));
+
+      } else if(r.file_type && r.file_type.startsWith('image/')){
+        const img = document.createElement('img');
+        img.src = effectiveUrl;
+        img.className = 'thumb-img';
+        node.appendChild(img);
+        node.addEventListener('click', ()=> playFromUrl(effectiveUrl, r.file_type));
+      } else {
+        const lbl = document.createElement('div'); lbl.className = 'small'; lbl.textContent = r.file_name || r.file_path;
+        node.appendChild(lbl);
+        node.addEventListener('click', ()=> { window.open(effectiveUrl, '_blank'); });
+      }
+      grid.appendChild(node);
+    }
+
+  }catch(e){
+    console.error('fetchAndRenderFromSupabase error', e);
+  }
+}
+
+/* ====== Player (play from HTTPS signed URL) ====== */
+function attachRemoteMediaToPlayer(url, type){
+  playerContainer.innerHTML = '';
+  if(type && type.startsWith('video/')){
+    const v = document.createElement('video');
+    v.src = url;
+    v.playsInline = true;
+    v.setAttribute('playsinline','');
+    v.setAttribute('webkit-playsinline','');
+    v.muted = true;
+    v.autoplay = true;
+    v.controls = false;
+    v.style.width = '100%';
+    v.style.height = '100%';
+    v.style.objectFit = 'contain';
+    v.style.display = 'block';
+
+    v.addEventListener('click', (ev)=> {
+      ev.stopPropagation();
+      if(v.muted) v.muted = false;
+      if(v.paused) v.play().catch(()=>{}); else v.pause();
+    });
+
+    playerContainer.appendChild(v);
+    playerModal.style.display = 'flex';
+    playerModal.setAttribute('aria-hidden','false');
+    setTimeout(()=> v.focus && v.focus(), 120);
+  } else if(type && type.startsWith('image/')){
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.maxWidth = '100%'; img.style.maxHeight = '100%'; img.style.objectFit='contain';
+    playerContainer.appendChild(img);
+    playerModal.style.display = 'flex';
+    playerModal.setAttribute('aria-hidden','false');
+  } else {
+    window.open(url, '_blank');
+  }
+}
+function playFromUrl(url, type){ attachRemoteMediaToPlayer(url, type); }
+
+/* close player */
+closePlayer.addEventListener('click', ()=> {
+  const medias = playerContainer.querySelectorAll('video,img');
+  medias.forEach(m => { try{ if(!m.paused) m.pause(); }catch(e){} });
+  playerModal.style.display = 'none'; playerModal.setAttribute('aria-hidden','true'); playerContainer.innerHTML = '';
+});
+playerModal.addEventListener('click', (ev)=> {
+  if(ev.target === playerModal){
+    const medias = playerContainer.querySelectorAll('video,img');
+    medias.forEach(m => { try{ if(!m.paused) m.pause(); }catch(e){} });
+    playerModal.style.display = 'none'; playerModal.setAttribute('aria-hidden','true'); playerContainer.innerHTML = '';
+  }
+});
+
+/* Fullscreen button: request fullscreen on active video (works when page is served via https/http) */
+(function(){
+  if(!fsBtn) return;
+  const ICON_ENTER = '⛶';
+  const ICON_EXIT = '✕';
+  fsBtn.textContent = ICON_ENTER;
+
+  fsBtn.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const video = playerContainer.querySelector('video');
+    if(!video){
+      console.warn('Fullscreen: nenhum vídeo ativo');
+      return;
+    }
+    try{
+      if(!document.fullscreenElement){
+        if(video.requestFullscreen) await video.requestFullscreen();
+        else if(video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+        else throw new TypeError('Fullscreen is not supported in this environment');
+      } else {
+        if(document.exitFullscreen) await document.exitFullscreen();
+      }
+    }catch(err){
+      console.warn('Fullscreen error', err);
+      alert('Fullscreen não disponível neste ambiente (verifique se está rodando via https/http).');
+    }
+  });
+
+  document.addEventListener('fullscreenchange', ()=> {
+    fsBtn.textContent = !!document.fullscreenElement ? ICON_EXIT : ICON_ENTER;
+  });
+  document.addEventListener('webkitfullscreenchange', ()=> {
+    fsBtn.textContent = !!document.webkitFullscreenElement ? ICON_EXIT : ICON_ENTER;
+  });
+})();
+
+/* init: anonymous auth + fetch user files */
+(async function init(){
+  try{
+    // try to get existing session
+    const { data: sessionData } = await sb.auth.getSession();
+    if(sessionData && sessionData.session && sessionData.session.user){
+      currentUser = sessionData.session.user;
+    } else {
+      // sign in anonymously (no UI)
+      const { data, error } = await sb.auth.signInAnonymously();
+      if(error){
+        console.warn('anonymous sign-in failed', error);
+        // fallback: still try to continue without auth (but RLS will block storage/table ops)
+        currentUser = null;
+      } else {
+        currentUser = data.user || null;
+      }
+    }
+  }catch(e){
+    console.warn('init auth getSession error', e);
+    currentUser = null;
+  }
+
+  // after auth attempt, render items (if any)
+  try{ await fetchAndRenderFromSupabase(); }catch(e){/* ignore */ }
+})();
+</script>
+</body>
+</html>
